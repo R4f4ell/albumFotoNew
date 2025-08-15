@@ -1,0 +1,19 @@
+@use './variables';
+
+body{
+  background: variables.$corDoBody;
+}
+
+.container {
+  width: 100%;
+  padding: 0 16px;
+  margin: 0 auto;
+
+  @media (min-width: 601px) and (max-width: 1024px) {
+    max-width: 720px;   
+  }
+
+  @media (min-width: 1025px) {
+    max-width: 1200px; 
+  }
+}
