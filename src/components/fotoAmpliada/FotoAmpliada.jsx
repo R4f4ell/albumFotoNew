@@ -1,35 +1,71 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Heart, Download } from 'lucide-react';
-import './fotoAmpliada.scss';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { X, Heart, Download } from "lucide-react";
+import "./fotoAmpliada.scss";
 
 import {
   getInteraction,
   incrementLike,
   incrementDownload,
-} from '../../utils/interactions';
+} from "../../utils/interactions";
 
 const FotoAmpliada = ({ foto, setFotoAmpliada }) => {
   const [liked, setLiked] = useState(false);
   const imageRef = useRef(null);
+  const closeBtnRef = useRef(null);
+  const lastFocusedRef = useRef(null);
 
-  // fecha modal com Esc
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') setFotoAmpliada(null);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    lastFocusedRef.current = document.activeElement;
+  }, []);
+
+  useEffect(() => {
+    closeBtnRef.current?.focus();
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setFotoAmpliada(null);
+    lastFocusedRef.current?.focus?.();
   }, [setFotoAmpliada]);
 
-  // bloqueia scroll ao abrir
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") handleClose();
+
+      if (e.key === "Tab") {
+        const container = document.querySelector(".foto-ampliada-container");
+        if (!container) return;
+
+        const focusables = container.querySelectorAll(
+          'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        const list = Array.from(focusables);
+        if (list.length === 0) return;
+
+        const first = list[0];
+        const last = list[list.length - 1];
+
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleClose]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = 'auto';
+      document.body.style.overflow = prev || "auto";
     };
   }, []);
 
-  // carrega estado de like
   useEffect(() => {
     const load = async () => {
       const interaction = await getInteraction(foto.id);
@@ -51,15 +87,13 @@ const FotoAmpliada = ({ foto, setFotoAmpliada }) => {
     const res = await fetch(foto.urls.full);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `${foto.id}.jpg`;
     a.click();
     URL.revokeObjectURL(url);
     incrementDownload(foto.id).catch(console.error);
   };
-
-  const handleClose = () => setFotoAmpliada(null);
 
   const onMove = (e) => {
     if (window.innerWidth < 1024) return;
@@ -71,55 +105,73 @@ const FotoAmpliada = ({ foto, setFotoAmpliada }) => {
 
   const onEnter = () => {
     if (window.innerWidth < 1024) return;
-    imageRef.current.style.transform = 'scale(2)';
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    if (!prefersReducedMotion) {
+      imageRef.current.style.transform = "scale(2)";
+    }
   };
 
   const onLeave = () => {
     if (window.innerWidth < 1024) return;
-    imageRef.current.style.transform = 'scale(1)';
-    imageRef.current.style.transformOrigin = 'center center';
+    imageRef.current.style.transform = "scale(1)";
+    imageRef.current.style.transformOrigin = "center center";
   };
 
   return (
-    <div className="foto-ampliada-backdrop" onClick={handleClose}>
+    <div
+      className="foto-ampliada-backdrop"
+      onClick={handleClose}
+      aria-label="Plano de fundo do modal de imagem"
+    >
       <div
         className="foto-ampliada-container"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-label="Imagem ampliada"
       >
         <button
+          ref={closeBtnRef}
           className="close-btn"
           onClick={handleClose}
           aria-label="Fechar imagem ampliada"
         >
-          <X />
+          <X aria-hidden="true" focusable="false" />
         </button>
+
         <img
           ref={imageRef}
           src={foto.urls.regular}
-          alt={foto.alt_description}
+          alt={foto.alt_description || "Imagem ampliada sem descrição"}
           onMouseMove={onMove}
           onMouseEnter={onEnter}
           onMouseLeave={onLeave}
+          decoding="async"
         />
-        <div className="modal-actions">
+
+        <div className="modal-actions" role="group" aria-label="Ações da imagem">
           <button
             className="like-btn"
             onClick={handleLike}
-            aria-label="Curtir imagem"
+            aria-pressed={liked}
+            aria-label={liked ? "Imagem curtida" : "Curtir imagem"}
           >
             <Heart
-              fill={liked ? '#ff0000' : 'none'}
-              color={liked ? '#ff0000' : '#ffffff'}
+              fill={liked ? "#ff0000" : "none"}
+              color={liked ? "#ff0000" : "#ffffff"}
+              aria-hidden="true"
+              focusable="false"
             />
           </button>
+
           <button
             className="download-btn"
             onClick={handleDownload}
             aria-label="Baixar imagem"
           >
-            <Download />
+            <Download aria-hidden="true" focusable="false" />
           </button>
         </div>
       </div>

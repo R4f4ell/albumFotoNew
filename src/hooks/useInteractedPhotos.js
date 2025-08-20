@@ -1,13 +1,33 @@
 import { useState, useEffect, useRef } from "react";
-import axios from "axios";
 import { getLikedImageIds, getDownloadedImageIds } from "../utils/interactions";
+import { getPhotoById } from "../lib/unsplash";
 
-export function useInteractedPhotos(categoria, apiKey, onReady) {
+async function fetchInBatches(ids, batchSize, onChunk) {
+  const collected = [];
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const slice = ids.slice(i, i + batchSize);
+    const results = await Promise.all(
+      slice.map((id) =>
+        getPhotoById(id)
+          .then((r) => (r.status < 400 ? r.data : null))
+          .catch(() => null)
+      )
+    );
+    const clean = results.filter(Boolean);
+    collected.push(...clean);
+    onChunk && onChunk(clean);
+  }
+  return collected;
+}
+
+export function useInteractedPhotos(categoria, onReady) {
   const [photos, setPhotos] = useState([]);
   const cache = useRef({ liked: null, downloaded: null });
 
   useEffect(() => {
     if (categoria !== "liked" && categoria !== "downloaded") return;
+
+    let canceled = false;
 
     (async () => {
       let list = cache.current[categoria];
@@ -18,26 +38,40 @@ export function useInteractedPhotos(categoria, apiKey, onReady) {
             ? await getLikedImageIds()
             : await getDownloadedImageIds();
 
-        const results = await Promise.all(
-          ids.map((id) =>
-            axios
-              .get(`https://api.unsplash.com/photos/${id}`, {
-                params: { client_id: apiKey },
-              })
-              .then((r) => r.data)
-              .catch(() => null)
-          )
-        );
+        if (!ids || ids.length === 0) {
+          if (!canceled) {
+            setPhotos([]);
+            onReady && onReady();
+          }
+          cache.current[categoria] = [];
+          return;
+        }
 
-        // Filtra os nulls em caso de erro
-        list = results.filter(Boolean);
+        const batchSize = 6;
+        const incremental = [];
+        await fetchInBatches(ids, batchSize, (chunk) => {
+          incremental.push(...chunk);
+          if (!canceled) setPhotos((prev) => [...prev, ...chunk]);
+          if (incremental.length === chunk.length && onReady) onReady();
+        });
+
+        list = incremental;
         cache.current[categoria] = list;
       }
 
-      setPhotos(list);
-      if (onReady) onReady();
+      if (!canceled) {
+        setPhotos(list);
+        // se já está em cache, agendo o onReady para rodar após o reset do pai
+        Promise.resolve().then(() => {
+          if (!canceled) onReady && onReady();
+        });
+      }
     })();
-  }, [categoria, apiKey, onReady]);
+
+    return () => {
+      canceled = true;
+    };
+  }, [categoria, onReady]);
 
   return photos;
 }

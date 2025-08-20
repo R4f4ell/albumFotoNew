@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from "react";
-import axios from "axios";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import SearchBar from "../searchBar/SearchBar";
 import FotoList from "../foto-fotoList/FotoList";
 import FotoAmpliada from "../fotoAmpliada/FotoAmpliada";
@@ -8,6 +7,7 @@ import { useDebounce } from "../../hooks/useDebounce";
 import { useInteractedPhotos } from "../../hooks/useInteractedPhotos";
 import { useFilteredPhotos } from "../../hooks/useFilteredPhotos";
 
+import { listPhotos, searchPhotos } from "../../lib/unsplash";
 import "./photoGallery.scss";
 
 const IMAGES_PER_PAGE = 6;
@@ -23,11 +23,18 @@ const PhotoGallery = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [interactedReady, setInteractedReady] = useState(false);
 
-  const apiKey = import.meta.env.VITE_UNSPLASH_API_KEY;
   const debouncedQuery = useDebounce(query, 400);
-  const interactedPhotos = useInteractedPhotos(categoria, apiKey, () => {
+
+  const isInteractedCategory = useMemo(
+    () => categoria === "liked" || categoria === "downloaded",
+    [categoria]
+  );
+
+  const handleInteractedReady = useCallback(() => {
     setInteractedReady(true);
-  });
+  }, []);
+
+  const interactedPhotos = useInteractedPhotos(categoria, handleInteractedReady);
 
   const fotosExibidas = useFilteredPhotos({
     fotos,
@@ -37,37 +44,36 @@ const PhotoGallery = () => {
   });
 
   const fetchImages = async (reset = false) => {
-    const isFilter = categoria === "liked" || categoria === "downloaded";
-    const searchQuery = isFilter
-      ? ""
-      : [debouncedQuery, categoria].filter(Boolean).join(" ");
-    const endpoint = searchQuery
-      ? "https://api.unsplash.com/search/photos"
-      : "https://api.unsplash.com/photos";
+    if (isInteractedCategory) return;
+
+    const searchQuery = [debouncedQuery, categoria].filter(Boolean).join(" ");
     const params = {
-      client_id: apiKey,
       page,
       per_page: IMAGES_PER_PAGE,
-      query: searchQuery || undefined,
+      ...(searchQuery ? { query: searchQuery } : {}),
     };
 
     setIsLoading(true);
     try {
-      const res = await axios.get(endpoint, { params });
+      const res = searchQuery ? await searchPhotos(params) : await listPhotos(params);
+
+      if (res.status >= 400) {
+        console.error("Erro ao buscar imagens:", res.status, res.data);
+        return;
+      }
+
       const results = searchQuery ? res.data.results : res.data;
+
       setFotos((prev) => {
         if (reset) return results;
         const prevIds = new Set(prev.map((f) => f.id));
         const unique = results.filter((f) => !prevIds.has(f.id));
         return [...prev, ...unique];
       });
-      if (!isFilter) {
-        setHasMore(
-          searchQuery
-            ? page < res.data.total_pages
-            : results.length === IMAGES_PER_PAGE
-        );
-      }
+
+      setHasMore(
+        searchQuery ? page < res.data.total_pages : results.length === IMAGES_PER_PAGE
+      );
     } catch (err) {
       console.error("Erro ao buscar imagens:", err);
     } finally {
@@ -76,49 +82,56 @@ const PhotoGallery = () => {
   };
 
   useEffect(() => {
-    if (activateSearch) {
-      if (!["liked", "downloaded"].includes(categoria)) {
-        setPage(1);
-        fetchImages(true);
-      }
-      setActivateSearch(false);
-    }
-  }, [activateSearch]);
-
-  useEffect(() => {
-    if (page > 1) fetchImages();
-  }, [page]);
-
-  useEffect(() => {
     fetchImages(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    if (!activateSearch) return;
+
+    if (!isInteractedCategory) {
+      setPage(1);
+      fetchImages(true);
+    }
+    setActivateSearch(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activateSearch, isInteractedCategory]);
+
+  useEffect(() => {
+    if (page > 1) fetchImages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  // reset ao trocar de categoria (evita race com onReady do hook)
+  useEffect(() => {
     setFotos([]);
-    setInteractedReady(false);
+
+    if (categoria === "liked" || categoria === "downloaded") {
+      setInteractedReady(false);   // só reseta quando precisa mostrar "Carregando..."
+    } else {
+      setInteractedReady(true);    // nas abas normais esse flag não é usado
+    }
   }, [categoria]);
 
-  // infinite scroll automático
   useEffect(() => {
     const handleScroll = () => {
-      if (
+      const nearBottom =
         window.innerHeight + window.pageYOffset >=
-          document.documentElement.offsetHeight - 10 &&
-        hasMore &&
-        !isLoading
-      ) {
+        document.documentElement.offsetHeight - 10;
+
+      if (nearBottom && hasMore && !isLoading) {
         setPage((p) => p + 1);
       }
     };
-    window.addEventListener("scroll", handleScroll);
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, [hasMore, isLoading]);
 
-  const isInteractedCategory = ["liked", "downloaded"].includes(categoria);
   const hasInteracted = interactedPhotos.length > 0;
 
   return (
-    <section className="photo-gallery">
+    <section className="photo-gallery" aria-label="Galeria de fotos">
       <SearchBar
         setQuery={setQuery}
         setCategoria={setCategoria}
@@ -127,28 +140,22 @@ const PhotoGallery = () => {
 
       {isInteractedCategory ? (
         !interactedReady ? (
-          <p className="loading-message">Carregando...</p>
+          <p className="loading-message" aria-live="polite">
+            Carregando...
+          </p>
         ) : hasInteracted ? (
-          <FotoList
-            fotos={fotosExibidas}
-            setFotoAmpliada={setFotoAmpliada}
-          />
+          <FotoList fotos={fotosExibidas} setFotoAmpliada={setFotoAmpliada} />
         ) : (
-          <p className="empty-message">
+          <p className="empty-message" aria-live="polite">
             Nada por aqui. Curta ou baixe algumas imagens primeiro!
           </p>
         )
       ) : (
-        <>
-          <FotoList fotos={fotosExibidas} setFotoAmpliada={setFotoAmpliada} />
-        </>
+        <FotoList fotos={fotosExibidas} setFotoAmpliada={setFotoAmpliada} />
       )}
 
       {fotoAmpliada && (
-        <FotoAmpliada
-          foto={fotoAmpliada}
-          setFotoAmpliada={setFotoAmpliada}
-        />
+        <FotoAmpliada foto={fotoAmpliada} setFotoAmpliada={setFotoAmpliada} />
       )}
     </section>
   );
