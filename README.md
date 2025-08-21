@@ -32,5 +32,5 @@ Aplicação web responsiva para buscar, visualizar e ampliar imagens utilizando 
 
 
 ## 🔗 Links
-- Projeto online: 
-- Código-fonte: https://github.com/R4f4ell/albumDeFotos
+- Projeto online: https://albumdefotos.rafaelldev.com
+- Código-fonte: https://github.com/R4f4ell/albumFotosComAPI
