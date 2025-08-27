@@ -83,7 +83,6 @@ const PhotoGallery = () => {
 
   useEffect(() => {
     fetchImages(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -94,22 +93,20 @@ const PhotoGallery = () => {
       fetchImages(true);
     }
     setActivateSearch(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activateSearch, isInteractedCategory]);
 
   useEffect(() => {
     if (page > 1) fetchImages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  // reset ao trocar de categoria (evita race com onReady do hook)
+  // reset ao trocar de categoria
   useEffect(() => {
     setFotos([]);
 
     if (categoria === "liked" || categoria === "downloaded") {
       setInteractedReady(false);   // só reseta quando precisa mostrar "Carregando..."
     } else {
-      setInteractedReady(true);    // nas abas normais esse flag não é usado
+      setInteractedReady(true);
     }
   }, [categoria]);
 
